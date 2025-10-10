@@ -11,7 +11,11 @@ A command-line tool to test multiple models through the Portkey AI gateway using
 - 📊 Clear success/error reporting with response time
 - 🚀 Dynamic model routing via Portkey
 - 🔄 Automatic fallback if primary endpoint fails
-- 🎨 Colored terminal output for better readability
+- 🎨 Beautiful terminal output with Rich library
+  - Animated progress bars and spinners
+  - Formatted tables with multiple columns
+  - Error panels with syntax highlighting
+  - Real-time status updates
 
 ## Documentation
 
@@ -299,8 +303,8 @@ done
 ## Requirements
 
 - Python 3.7+
-- portkey-ai SDK
-- colorama (for colored terminal output)
+- portkey-ai SDK  
+- rich (for beautiful terminal output)
 
 ## License
 
