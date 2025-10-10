@@ -25,7 +25,7 @@ console = Console()
 def print_banner():
     """Print a fancy banner because why not."""
     console.print(Panel(
-        "[bold cyan]🔑 Portkey AI Gateway Tester[/bold cyan]\n[dim]Professional API testing with beautiful output[/dim]",
+        "[bold cyan]🔑 Portkey AI Gateway Tester[/bold cyan]\n[dim]Professional API testing[/dim]",
         border_style="cyan",
         padding=(1, 2),
         expand=True
