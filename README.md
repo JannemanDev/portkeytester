@@ -5,11 +5,13 @@ A command-line tool to test multiple models through the Portkey AI gateway using
 ## Features
 
 - 🔑 Test Portkey API keys
-- 🎯 Support for multiple model slugs (chat completions & embeddings)
+- 🎯 Support for multiple model types (chat & embeddings)
+- 🤖 Auto-detects endpoint type based on model slug
 - ⚙️ Optional config ID/header support
-- 📊 Clear success/error reporting
+- 📊 Clear success/error reporting with response time
 - 🚀 Dynamic model routing via Portkey
-- 🔢 Dedicated embeddings endpoint testing
+- 🔄 Automatic fallback if primary endpoint fails
+- 🎨 Colored terminal output for better readability
 
 ## Documentation
 
@@ -57,9 +59,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Testing Chat Completions
-
-Run the chat completions test script:
+Run the test script:
 ```bash
 python test_portkey.py
 ```
@@ -68,22 +68,20 @@ The script will interactively prompt you for:
 
 1. **Portkey API Key**: Your `x-portkey-api-key` value
 2. **Config ID** (optional): Portkey config ID for virtual keys/routing rules
-3. **Model Slugs**: Comma-separated list of model identifiers
+3. **Model Slugs**: Comma-separated list of model identifiers (chat or embeddings)
 
-### Testing Embeddings
+### Smart Endpoint Detection
 
-**Important**: Embeddings models use a different endpoint (`/embeddings`) than chat completions (`/chat/completions`). Use the dedicated embeddings test script:
+The script **automatically detects** which endpoint to use based on the model slug:
+- Models containing `"embed"` → Uses **embeddings endpoint** (`/embeddings`)
+- All other models → Uses **chat completions endpoint** (`/chat/completions`)
 
-```bash
-python test_embeddings.py
-```
+**Fallback Logic**: If the auto-detected endpoint fails, the script automatically tries the other endpoint.
 
-The embeddings script will prompt you for:
-
-1. **Portkey API Key**: Your `x-portkey-api-key` value
-2. **Config ID** (optional): Portkey config ID for virtual keys/routing rules
-3. **Embeddings Model Slugs**: Comma-separated list of embeddings model identifiers
-4. **Test Texts**: Text inputs to generate embeddings for
+**Examples**:
+- `cohere-embed-v3` → Auto-detected as embeddings
+- `mistral-large` → Auto-detected as chat
+- You can test both in one run: `mistral-large, cohere-embed-v3`
 
 ### Example Session - Chat Completions
 
@@ -93,94 +91,99 @@ The embeddings script will prompt you for:
 
 Enter your Portkey API key: ###
 Enter config ID (optional, press Enter to skip): 
-Enter model slugs (comma-separated): mistral-medium, gpt-4, claude-3-opus
+Enter model slugs (comma-separated): mistral-large
 
 🔧 Initializing Portkey client...
 
-📊 Testing 3 model(s)...
+📊 Testing 1 model(s)...
 
-🧪 Testing model: mistral-medium
+🧪 Testing model: mistral-large
 ------------------------------------------------------------
-✅ Success!
-   Response: Hello! I can hear you loud and clear. How can I assist you today?
-   Model used: mistral-medium
-   Tokens used: CompletionUsage(completion_tokens=15, prompt_tokens=25, total_tokens=40)
+✅ Response Success! API Key is working.
+   Requested model: mistral-large
+   Endpoint used: chat
+   Response from model: mistral-large-2411
+   ⏱️  Response time: 1.23s
+   ➜ Please verify this is the correct routing for your config.
 
-🧪 Testing model: gpt-4
-------------------------------------------------------------
-✅ Success!
-   Response: Hello!
-   Model used: gpt-4
+   Sample response: Hello...
    Tokens used: CompletionUsage(completion_tokens=2, prompt_tokens=25, total_tokens=27)
 
-...
+============================================================
+📋 TEST SUMMARY
+============================================================
+  ✅ PASS - mistral-large
+
+Total: 1 passed, 0 failed
+============================================================
 ```
 
 ### Example Session - Embeddings
 
 ```
-🔢 Portkey AI Gateway Embeddings Tester
+🔑 Portkey AI Gateway Tester
 ============================================================
 
 Enter your Portkey API key: ###
 Enter config ID (optional, press Enter to skip): 
-Enter embeddings model slugs (comma-separated): text-embedding-ada-002, text-embedding-3-small
-
-Enter text(s) to embed (one per line, empty line to finish):
-  Text 1: Hello, world!
-  Text 2: Testing embeddings
-  Text 3: 
+Enter model slugs (comma-separated): cohere-embed-v3
 
 🔧 Initializing Portkey client...
 
-📊 Testing 2 embeddings model(s) with 2 text(s)...
+📊 Testing 1 model(s)...
 
-🧪 Testing embeddings model: text-embedding-ada-002
+🧪 Testing model: cohere-embed-v3
 ------------------------------------------------------------
-✅ Embeddings Success! API Key is working.
-   Requested model: text-embedding-ada-002
-   Response from model: text-embedding-ada-002
-   ⏱️  Response time: 0.45s
-   
-   Number of embeddings: 2
-   Embedding dimensions: 1536
-   Sample (first 5 dims): [0.0234, -0.0156, 0.0089, -0.0234, 0.0167...]
-   Tokens used: Usage(prompt_tokens=8, total_tokens=8)
+✅ Response Success! API Key is working.
+   Requested model: cohere-embed-v3
+   Endpoint used: embeddings
+   Response from model: Cohere-embed-v3-multilingual
+   ⏱️  Response time: 0.87s
+   ➜ Please verify this is the correct routing for your config.
 
-...
+   Embedding dimension: 1024
+   Tokens used: {...}
+
+============================================================
+📋 TEST SUMMARY
+============================================================
+  ✅ PASS - cohere-embed-v3
+
+Total: 1 passed, 0 failed
+============================================================
 ```
 
 ## Example Model Slugs
 
-Depending on your Portkey configuration, you can test various models:
+Depending on your Portkey configuration, you can test various models. The script auto-detects the endpoint type:
 
-### Chat Completion Models
+### Chat Completion Models (auto-detected)
 - **OpenAI**: `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`
 - **Anthropic**: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
 - **Mistral**: `mistral-medium`, `mistral-small`, `mistral-tiny`
 - **Custom slugs**: Any model slug configured in your Portkey dashboard
 
-### Embeddings Models
+### Embeddings Models (auto-detected with "embed" in name)
 - **OpenAI**: `text-embedding-ada-002`, `text-embedding-3-small`, `text-embedding-3-large`
-- **Cohere**: `embed-english-v3.0`, `embed-multilingual-v3.0`
+- **Cohere**: `cohere-embed-v3`, `embed-english-v3.0`, `embed-multilingual-v3.0`
 - **Custom slugs**: Any embeddings model configured in your Portkey dashboard
 
-> **Note**: Embeddings models require the `/embeddings` endpoint, not the `/chat/completions` endpoint. Always use `test_embeddings.py` for testing embeddings models.
+> **Note**: Models containing `"embed"` in their slug are automatically routed to the `/embeddings` endpoint. All other models use `/chat/completions`.
 
 ## How It Works
 
-### Chat Completions (`test_portkey.py`)
-1. The script initializes a Portkey client with your API key
-2. For each model slug, it sends a test chat completion request to `/chat/completions`
-3. Portkey dynamically routes the request to the appropriate provider
-4. The script validates the response and reports success/failure
-5. A summary shows overall test results
-
-### Embeddings (`test_embeddings.py`)
-1. The script initializes a Portkey client with your API key
-2. For each embeddings model, it sends text inputs to the `/embeddings` endpoint
-3. Portkey routes the request to the configured embeddings provider
-4. The script displays embedding dimensions and sample vectors
+1. The script initializes a Portkey client with your API key (and optional config ID)
+2. For each model slug:
+   - **Auto-detects** the endpoint type (chat vs embeddings based on slug name)
+   - Sends a test request to the appropriate endpoint
+   - If primary endpoint fails, tries the fallback endpoint automatically
+   - Measures response time
+3. Portkey dynamically routes the request to the configured provider
+4. The script validates the response and reports:
+   - Success/failure status
+   - Which endpoint was used
+   - Actual model that responded
+   - Response time and token usage
 5. A summary shows overall test results
 
 ## Plain HTTP/curl Examples
@@ -250,7 +253,7 @@ curl --request POST \
   --header 'x-portkey-api-key: YOUR_API_KEY_HERE' \
   --header 'x-portkey-config: YOUR_CONFIG_ID' \
   --data '{
-    "input": "Text to embed",
+    "input": ["Text to embed"],
     "model": "text-embedding-3-small"
   }'
 ```
@@ -297,6 +300,7 @@ done
 
 - Python 3.7+
 - portkey-ai SDK
+- colorama (for colored terminal output)
 
 ## License
 
