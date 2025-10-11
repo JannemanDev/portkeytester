@@ -1,312 +1,136 @@
 # Portkey AI Gateway Tester
 
-A command-line tool to test multiple models through the Portkey AI gateway using the Portkey Python SDK.
+A CLI that verifies whether your Portkey API key works and whether a given model slug routes to the provider you expect. It uses the official Portkey Python SDK, keeps requests tiny, and surfaces all of the routing headers Portkey returns.
 
-## Features
+## Highlights
 
-- 🔑 Test Portkey API keys
-- 🎯 Support for multiple model types (chat & embeddings)
-- 🤖 Auto-detects endpoint type based on model slug
-- ⚙️ Optional config ID/header support
-- 📊 Clear success/error reporting with response time
-- 🚀 Dynamic model routing via Portkey
-- 🔄 Automatic fallback if primary endpoint fails
-- 🎨 Beautiful terminal output with Rich library
-  - Animated progress bars and spinners
-  - Formatted tables with multiple columns
-  - Error panels with syntax highlighting
-  - Real-time status updates
-
-## Documentation
-
-This tool is built on top of the [Portkey Inference API](https://portkey.ai/docs/api-reference/inference-api/introduction). Portkey provides three ways to integrate:
-
-1. **Portkey SDKs** (Python and JavaScript) - Used by this tool
-2. **OpenAI SDK** through Portkey Gateway - Change base URL to `https://api.portkey.ai/v1`
-3. **REST API** - Direct HTTP calls to `https://api.portkey.ai/v1`
-
-For more information, visit the [Portkey API Reference](https://portkey.ai/docs/api-reference/inference-api/introduction).
+- 🔐 Works non-interactively via CLI flags or environment variables (still prompts if you omit values).
+- 🎯 Explicit endpoint selection with `--endpoint` (`auto`, `chat`, or `embeddings`). No hidden fallbacks when you force an endpoint.
+- ✅ Routing validation via `--expect-model` / `--expect-provider` substrings – failures are reflected in the exit code.
+- 📡 Correlation IDs (`x-portkey-trace-id` / `x-portkey-span-id`) are set on every request and echoed back in the output.
+- 📊 Rich-powered table output for humans, or `--format json` for scripts/CI.
+- 🚦 Deterministic exit codes: `0` (all pass), `2` (auth/expectation failure), `5` (SDK/server errors).
 
 ## Installation
 
-### Quick Setup (Recommended)
+The project ships as a normal Python package. You can install it into a virtual environment, or use the existing `install.sh` helper if you prefer.
 
-Run the automated setup script with `source` to keep the virtual environment activated:
+### Option 1 – pip / pipx
+
+```bash
+# inside a venv or global (pipx is great for CLIs)
+pip install .
+# or
+pipx install .
+```
+
+This installs the `portkey-tester` command.
+
+### Option 2 – helper script
+
 ```bash
 source ./install.sh
 ```
 
-This will:
-- Create a virtual environment
-- Install all dependencies
-- Activate the virtual environment automatically
-
-Alternatively, run without `source` to just set up without activating:
-```bash
-./install.sh
-```
-
-### Manual Setup
-
-1. Clone or download this repository
-
-2. (Optional) Create a virtual environment:
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+The script creates `.venv/`, installs dependencies in editable mode, and leaves the virtual environment activated.
 
 ## Usage
 
-Run the test script:
-```bash
-python test_portkey.py
-```
-
-The script will interactively prompt you for:
-
-1. **Portkey API Key**: Your `x-portkey-api-key` value
-2. **Config ID** (optional): Portkey config ID for virtual keys/routing rules
-3. **Model Slugs**: Comma-separated list of model identifiers (chat or embeddings)
-
-### Smart Endpoint Detection
-
-The script **automatically detects** which endpoint to use based on the model slug:
-- Models containing `"embed"` → Uses **embeddings endpoint** (`/embeddings`)
-- All other models → Uses **chat completions endpoint** (`/chat/completions`)
-
-**Fallback Logic**: If the auto-detected endpoint fails, the script automatically tries the other endpoint.
-
-**Examples**:
-- `cohere-embed-v3` → Auto-detected as embeddings
-- `mistral-large` → Auto-detected as chat
-- You can test both in one run: `mistral-large, cohere-embed-v3`
-
-### Example Session - Chat Completions
-
-```
-🔑 Portkey AI Gateway Tester
-============================================================
-
-Enter your Portkey API key: ###
-Enter config ID (optional, press Enter to skip): 
-Enter model slugs (comma-separated): mistral-large
-
-🔧 Initializing Portkey client...
-
-📊 Testing 1 model(s)...
-
-🧪 Testing model: mistral-large
-------------------------------------------------------------
-✅ Response Success! API Key is working.
-   Requested model: mistral-large
-   Endpoint used: chat
-   Response from model: mistral-large-2411
-   ⏱️  Response time: 1.23s
-   ➜ Please verify this is the correct routing for your config.
-
-   Sample response: Hello...
-   Tokens used: CompletionUsage(completion_tokens=2, prompt_tokens=25, total_tokens=27)
-
-============================================================
-📋 TEST SUMMARY
-============================================================
-  ✅ PASS - mistral-large
-
-Total: 1 passed, 0 failed
-============================================================
-```
-
-### Example Session - Embeddings
-
-```
-🔑 Portkey AI Gateway Tester
-============================================================
-
-Enter your Portkey API key: ###
-Enter config ID (optional, press Enter to skip): 
-Enter model slugs (comma-separated): cohere-embed-v3
-
-🔧 Initializing Portkey client...
-
-📊 Testing 1 model(s)...
-
-🧪 Testing model: cohere-embed-v3
-------------------------------------------------------------
-✅ Response Success! API Key is working.
-   Requested model: cohere-embed-v3
-   Endpoint used: embeddings
-   Response from model: Cohere-embed-v3-multilingual
-   ⏱️  Response time: 0.87s
-   ➜ Please verify this is the correct routing for your config.
-
-   Embedding dimension: 1024
-   Tokens used: {...}
-
-============================================================
-📋 TEST SUMMARY
-============================================================
-  ✅ PASS - cohere-embed-v3
-
-Total: 1 passed, 0 failed
-============================================================
-```
-
-## Example Model Slugs
-
-Depending on your Portkey configuration, you can test various models. The script auto-detects the endpoint type:
-
-### Chat Completion Models (auto-detected)
-- **OpenAI**: `gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`
-- **Anthropic**: `claude-3-opus`, `claude-3-sonnet`, `claude-3-haiku`
-- **Mistral**: `mistral-medium`, `mistral-small`, `mistral-tiny`
-- **Custom slugs**: Any model slug configured in your Portkey dashboard
-
-### Embeddings Models (auto-detected with "embed" in name)
-- **OpenAI**: `text-embedding-ada-002`, `text-embedding-3-small`, `text-embedding-3-large`
-- **Cohere**: `cohere-embed-v3`, `embed-english-v3.0`, `embed-multilingual-v3.0`
-- **Custom slugs**: Any embeddings model configured in your Portkey dashboard
-
-> **Note**: Models containing `"embed"` in their slug are automatically routed to the `/embeddings` endpoint. All other models use `/chat/completions`.
-
-## How It Works
-
-1. The script initializes a Portkey client with your API key (and optional config ID)
-2. For each model slug:
-   - **Auto-detects** the endpoint type (chat vs embeddings based on slug name)
-   - Sends a test request to the appropriate endpoint
-   - If primary endpoint fails, tries the fallback endpoint automatically
-   - Measures response time
-3. Portkey dynamically routes the request to the configured provider
-4. The script validates the response and reports:
-   - Success/failure status
-   - Which endpoint was used
-   - Actual model that responded
-   - Response time and token usage
-5. A summary shows overall test results
-
-## Plain HTTP/curl Examples
-
-If you prefer not to use the Python SDK, you can test Portkey directly with HTTP requests:
-
-### Chat Completions - Basic Request with API Key
+Run the CLI directly after installation:
 
 ```bash
-curl --request POST \
-  --url https://api.portkey.ai/v1/chat/completions \
-  --header 'content-type: application/json' \
-  --header 'x-portkey-api-key: YOUR_API_KEY_HERE' \
-  --data '{
-    "messages": [
-      {
-        "role": "system",
-        "content": "You are a helpful assistant."
-      },
-      {
-        "role": "user",
-        "content": "Say hello!"
-      }
-    ],
-    "model": "mistral-medium"
-  }'
+portkey-tester --api-key sk_live_... --models mistral-large,claude-3-sonnet
 ```
 
-### Chat Completions - Request with Config ID
+Key options:
+
+| Flag | Description |
+| ---- | ----------- |
+| `--api-key` | Portkey API key. Falls back to `PORTKEY_API_KEY`, piped stdin, then a secure prompt. |
+| `--config-id` | Optional Portkey config to pin routing. Also reads `PORTKEY_CONFIG_ID`. |
+| `--models` / `--model` | Comma separated string or repeatable flag with model slugs to probe. |
+| `--endpoint` | `auto` (default), `chat`, or `embeddings`. Forced values disable fallback. |
+| `--expect-model` | Expected substring in the resolved `response.model`. Repeatable. |
+| `--expect-provider` | Expected substring found in provider headers. Repeatable. |
+| `--timeout` | Request timeout in seconds (default `10`). |
+| `--format` | `table` (default) or `json`. |
+| `--quiet` | Skip progress UI and intermediate output. |
+
+Environment variables:
+
+- `PORTKEY_API_KEY`
+- `PORTKEY_CONFIG_ID`
+- `PORTKEY_MODELS` (comma separated)
+
+### Table output example
 
 ```bash
-curl --request POST \
-  --url https://api.portkey.ai/v1/chat/completions \
-  --header 'content-type: application/json' \
-  --header 'x-portkey-api-key: YOUR_API_KEY_HERE' \
-  --header 'x-portkey-config: YOUR_CONFIG_ID' \
-  --data '{
-    "messages": [
-      {
-        "role": "user",
-        "content": "Test message"
-      }
-    ],
-    "model": "gpt-4"
-  }'
+portkey-tester --models mistral-large,text-embedding-3-small --expect-model mistral --expect-provider openai
 ```
 
-### Embeddings - Basic Request
+```
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
+┃ Slug               ┃ Endpoint  ┃ Resolved Model     ┃ Provider  ┃ Latency (ms)┃ Tokens ┃ Status ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━┩
+│ mistral-large      │ chat      │ mistral-large-2411 │ openai    │ 812         │ 27     │ PASS   │
+│ text-embedding-…   │ embeddings│ text-embedding-3…  │ openai    │ 542         │ -      │ FAIL   │
+└────────────────────┴───────────┴────────────────────┴───────────┴─────────────┴────────┴────────┘
+┌ Summary ────────────────────────────────────────────────────────────────────────────────────────┐
+│ Passed: 1  Failed: 1  Total: 2                                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ text-embedding-3-small ──────────────────────────────────────────────────────────────────────────┐
+│ Reason: Provider did not contain 'openai'                                                        │
+│ Trace ID: 1c3f3f4e-...                                                                            │
+│ Span ID: d845e538-...                                                                             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### JSON output example
 
 ```bash
-curl --request POST \
-  --url https://api.portkey.ai/v1/embeddings \
-  --header 'content-type: application/json' \
-  --header 'x-portkey-api-key: YOUR_API_KEY_HERE' \
-  --data '{
-    "input": ["Hello, world!", "Testing embeddings"],
-    "model": "text-embedding-ada-002"
-  }'
+portkey-tester --models mistral-large --format json --quiet
 ```
 
-### Embeddings - Request with Config ID
-
-```bash
-curl --request POST \
-  --url https://api.portkey.ai/v1/embeddings \
-  --header 'content-type: application/json' \
-  --header 'x-portkey-api-key: YOUR_API_KEY_HERE' \
-  --header 'x-portkey-config: YOUR_CONFIG_ID' \
-  --data '{
-    "input": ["Text to embed"],
-    "model": "text-embedding-3-small"
-  }'
+```json
+{
+  "ok": true,
+  "summary": {"passed": 1, "failed": 0, "total": 1},
+  "runs": [
+    {
+      "slug": "mistral-large",
+      "endpoint": "chat",
+      "resolved_model": "mistral-large-2411",
+      "provider": "openai",
+      "config": "config_123",
+      "latency_ms": 812.37,
+      "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
+      "status": "pass",
+      "trace_id": "1c3f3f4e-...",
+      "span_id": "d845e538-...",
+      "headers": {"x-portkey-provider": "openai"}
+    }
+  ],
+  "trace_id": "2bff73c0-..."
+}
 ```
 
-### Testing Multiple Models (bash script)
+### Exit codes
 
-```bash
-#!/bin/bash
+- `0` – every model passed validation.
+- `2` – at least one model failed authentication or expectation checks.
+- `5` – unexpected 5xx/SDK/network error.
 
-API_KEY="YOUR_API_KEY_HERE"
-MODELS=("mistral-medium" "gpt-4" "claude-3-opus")
+## Request payloads
 
-for model in "${MODELS[@]}"; do
-  echo "Testing $model..."
-  curl --request POST \
-    --url https://api.portkey.ai/v1/chat/completions \
-    --header 'content-type: application/json' \
-    --header "x-portkey-api-key: $API_KEY" \
-    --data "{
-      \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],
-      \"model\": \"$model\"
-    }"
-  echo ""
-done
-```
+To keep costs negligible the CLI sends:
 
-## Exit Codes
+- Chat: `[{"role": "user", "content": "ping"}]` with `max_tokens=1`
+- Embeddings: `input=["ok"]`
 
-- `0`: All tests passed
-- `1`: One or more tests failed
-- `130`: User interrupted (Ctrl+C)
+Both calls attach the generated `x-portkey-trace-id` / `x-portkey-span-id` headers so you can line them up with the Portkey dashboard logs.
 
-## Troubleshooting
+## Additional notes
 
-**Invalid API Key**: Ensure your Portkey API key is correct and active
-
-**Model Not Found**: Verify the model slug is configured in your Portkey dashboard
-
-**Network Errors**: Check your internet connection and Portkey service status
-
-**Config Errors**: If using a config ID, ensure it exists in your Portkey account
-
-## Requirements
-
-- Python 3.7+
-- portkey-ai SDK  
-- rich (for beautiful terminal output)
-
-## License
-
-Free to use for testing your Portkey configurations.
-
+- The CLI is built on top of the [Portkey Inference API](https://portkey.ai/docs/api-reference/inference-api/introduction).
+- If you prefer raw HTTP requests, you can adapt the payloads above to `curl` or any HTTP client.
+- `python test_portkey.py` continues to work and simply dispatches to the packaged CLI.

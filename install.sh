@@ -24,7 +24,7 @@ PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_inf
 echo "✓ Found Python $PYTHON_VERSION"
 
 # Create virtual environment
-VENV_DIR="venv"
+VENV_DIR=".venv"
 
 if [ -d "$VENV_DIR" ]; then
     echo "⚠️  Virtual environment already exists at ./$VENV_DIR"
@@ -52,8 +52,8 @@ echo "⬆️  Upgrading pip..."
 pip install --upgrade pip -q
 
 # Install dependencies
-echo "📥 Installing dependencies..."
-pip install -r requirements.txt
+echo "📥 Installing dependencies (editable install)..."
+pip install -e .
 
 echo ""
 echo "✅ Setup complete!"
@@ -64,9 +64,8 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Script was sourced - venv is already active
     echo "🎉 Virtual environment is now active!"
     echo ""
-    echo "To run the Portkey testers:"
-    echo "  python test_portkey.py        # Test chat completions"
-    echo "  python test_embeddings.py     # Test embeddings"
+    echo "To run the Portkey tester CLI:"
+    echo "  portkey-tester --help"
     echo ""
     echo "To deactivate when done:"
     echo "  deactivate"
@@ -75,14 +74,13 @@ else
     echo "⚠️  Note: Virtual environment was created but is not active."
     echo ""
     echo "To activate it, run:"
-    echo "  source venv/bin/activate"
+    echo "  source .venv/bin/activate"
     echo ""
     echo "Or re-run this script with 'source' to auto-activate:"
     echo "  source ./install.sh"
     echo ""
-    echo "Then run the testers:"
-    echo "  python test_portkey.py        # Test chat completions"
-    echo "  python test_embeddings.py     # Test embeddings"
+    echo "Then run the tester CLI:"
+    echo "  portkey-tester --help"
 fi
 echo ""
 
