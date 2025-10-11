@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "portkeytester"
+version = "0.2.0"
+description = "Minimal Portkey key/route tester with Rich output"
+readme = "README.md"
+authors = [{ name = "Portkey" }]
+requires-python = ">=3.9"
+dependencies = [
+  "portkey-ai>=1.0.0",
+  "rich>=13.0.0",
+  "typer>=0.12"
+]
+
+[project.scripts]
+portkey-tester = "portkeytester.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/portkeytester"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/portkeytester", "README.md", "requirements.txt", "install.sh", "test_portkey.py"]
