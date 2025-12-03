@@ -17,6 +17,9 @@ from rich.rule import Rule
 from rich.pretty import Pretty
 from rich.status import Status
 import json
+import os
+import tempfile
+import wave
 
 # Initialize Rich console
 console = Console()
@@ -47,6 +50,34 @@ def get_config_id() -> Optional[str]:
     return config_id if config_id else None
 
 
+def get_target_endpoint_type() -> Optional[str]:
+    """Prompt user to select the target endpoint type."""
+    console.print("\n[bold]Select Endpoint Type:[/bold]")
+    console.print("1. [cyan]Chat Completions[/cyan] (default)")
+    console.print("2. [cyan]Embeddings[/cyan]")
+    console.print("3. [cyan]Text-to-Speech[/cyan] (TTS)")
+    console.print("4. [cyan]Speech-to-Text[/cyan] (STT)")
+    console.print("5. [dim]Auto-detect based on slug[/dim]")
+    
+    choice = console.input("[bold]Enter choice (1-5):[/bold] ").strip()
+    
+    if choice == '1':
+        return 'chat'
+    elif choice == '2':
+        return 'embeddings'
+    elif choice == '3':
+        return 'tts'
+    elif choice == '4':
+        return 'stt'
+    elif choice == '5':
+        return None
+    else:
+        # Default to chat if invalid or empty (common behavior) or auto-detect?
+        # Let's default to auto-detect for safety if they just hit enter without reading
+        if not choice:
+            return 'chat' # Default to chat as per menu
+        return None
+
 def get_model_slugs() -> List[str]:
     """Prompt user for model slugs (comma-separated)."""
     models_input = console.input("[bold]Enter model slugs[/bold] [dim](comma-separated)[/dim]: ").strip()
@@ -64,19 +95,108 @@ def get_model_slugs() -> List[str]:
     return model_slugs
 
 
-def detect_endpoint_type(model_slug: str) -> str:
+def get_endpoint_priorities(model_slug: str, forced_type: Optional[str] = None) -> List[str]:
     """
-    Detect which endpoint to use based on model slug.
+    Get a list of endpoints to try in order of priority based on model slug.
     
     Args:
         model_slug: Model identifier
+        forced_type: Optional forced endpoint type ('chat', 'embeddings', 'tts', 'stt')
     
     Returns:
-        'embeddings' or 'chat'
+        List of endpoint strings ('chat', 'embeddings', 'tts', 'stt')
     """
-    if 'embed' in model_slug.lower():
-        return 'embeddings'
-    return 'chat'
+    if forced_type:
+        # Validate forced type
+        valid_types = ['chat', 'embeddings', 'tts', 'stt']
+        if forced_type in valid_types:
+            return [forced_type]
+        # If invalid, warn and fall back to auto-detect (or could error out)
+        # For now, let's just fall back but maybe we should be strict
+        pass
+
+    slug = model_slug.lower()
+    if 'embed' in slug:
+        return ['embeddings', 'chat', 'tts', 'stt']
+    if 'tts' in slug:
+        return ['tts', 'chat', 'embeddings', 'stt']
+    if 'whisper' in slug:
+        return ['stt', 'chat', 'embeddings', 'tts']
+    
+    # Default priority
+    return ['chat', 'embeddings', 'tts', 'stt']
+
+def test_text_to_speech(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
+    """Test text-to-speech endpoint."""
+    response = client.audio.speech.create(
+        model=model_slug,
+        voice="alloy",
+        input="Hello, this is a test of the Portkey Audio API."
+    )
+    
+    # The response is a binary stream or object with content
+    # For the SDK, it usually returns a response object where we can get bytes
+    # Adjusting based on standard OpenAI-compatible SDK behavior which Portkey mimics
+    
+    content_length = 0
+    if hasattr(response, 'content'):
+        content_length = len(response.content)
+    elif hasattr(response, 'read'):
+        content_length = len(response.read())
+    elif hasattr(response, 'response') and hasattr(response.response, 'content'):
+         content_length = len(response.response.content)
+    else:
+        # Fallback for some SDK versions, try to cast to bytes if possible or check if it's iterable
+        try:
+            content_length = len(response)
+        except:
+            pass
+
+    if content_length > 0:
+        return True, {
+            'endpoint': 'tts',
+            'model': model_slug,
+            'audio_size': content_length,
+            'usage': None  # TTS usually doesn't return token usage in the same way
+        }
+    
+    return False, {'endpoint': 'tts', 'error': 'No audio content received'}
+
+def test_speech_to_text(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
+    """Test speech-to-text endpoint."""
+    # Create a temporary WAV file
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+        temp_filename = temp_audio.name
+        
+    try:
+        # Generate 1 second of silence/simple audio
+        with wave.open(temp_filename, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(44100)
+            # Write 1 second of silence (zeros)
+            wav_file.writeframes(b'\x00' * 44100 * 2)
+            
+        with open(temp_filename, "rb") as audio_file:
+            response = client.audio.transcriptions.create(
+                model=model_slug,
+                file=audio_file
+            )
+        
+        if response and hasattr(response, 'text'):
+            return True, {
+                'endpoint': 'stt',
+                'model': model_slug,
+                'content': response.text,
+                'usage': None
+            }
+            
+        return False, {'endpoint': 'stt', 'error': 'Invalid response structure'}
+        
+    finally:
+        # Cleanup
+        if os.path.exists(temp_filename):
+            os.unlink(temp_filename)
 
 
 def test_chat_completion(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
@@ -131,21 +251,21 @@ def test_embeddings(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, A
     return False, {'endpoint': 'embeddings', 'error': 'Invalid response structure'}
 
 
-def test_model(client: Portkey, model_slug: str, status=None) -> Tuple[bool, Dict[str, Any]]:
+def test_model(client: Portkey, model_slug: str, forced_type: Optional[str] = None, on_status_update=None) -> Tuple[bool, Dict[str, Any]]:
     """
     Test a single model by auto-detecting and using the appropriate endpoint.
     
     Args:
         client: Initialized Portkey client
         model_slug: Model identifier to test
-        status: Optional Rich status for spinner display
+        forced_type: Optional forced endpoint type
+        on_status_update: Optional callback function(msg: str) to update status
     
     Returns:
         Tuple of (success: bool, details: dict)
     """
-    # Auto-detect endpoint type
-    primary_endpoint = detect_endpoint_type(model_slug)
-    fallback_endpoint = 'chat' if primary_endpoint == 'embeddings' else 'embeddings'
+    # Get endpoint priorities
+    endpoints_to_try = get_endpoint_priorities(model_slug, forced_type)
     
     test_details = {
         'model': model_slug,
@@ -162,27 +282,40 @@ def test_model(client: Portkey, model_slug: str, status=None) -> Tuple[bool, Dic
         # Measure response time
         start_time = time.time()
         
-        # Try primary endpoint
         success = False
         result = {}
+        first_error = None
         
-        try:
-            if primary_endpoint == 'chat':
-                success, result = test_chat_completion(client, model_slug)
-            else:
-                success, result = test_embeddings(client, model_slug)
-        except Exception as primary_error:
-            # Try fallback endpoint
-            if status:
-                status.update(f"[yellow]Trying fallback endpoint {fallback_endpoint}...[/yellow]")
+        # Iterate through endpoints
+        for i, endpoint in enumerate(endpoints_to_try):
+            test_details['endpoint'] = endpoint
             try:
-                if fallback_endpoint == 'chat':
+                if i > 0 and on_status_update:
+                    on_status_update(f"Trying fallback endpoint {endpoint}...")
+                    
+                if endpoint == 'chat':
                     success, result = test_chat_completion(client, model_slug)
-                else:
+                elif endpoint == 'embeddings':
                     success, result = test_embeddings(client, model_slug)
-            except Exception as fallback_error:
-                # Both failed, raise the original error
-                raise primary_error
+                elif endpoint == 'tts':
+                    success, result = test_text_to_speech(client, model_slug)
+                elif endpoint == 'stt':
+                    success, result = test_speech_to_text(client, model_slug)
+                
+                # If we got here without exception, check if it was logically successful
+                if success:
+                    break
+                    
+            except Exception as e:
+                # Capture the first error as it's likely the most relevant (based on slug detection)
+                if first_error is None:
+                    first_error = e
+                # Continue to next endpoint
+                continue
+        
+        # If we failed all attempts and have an error, raise the first one
+        if not success and first_error:
+            raise first_error
         
         # Calculate response time
         response_time = time.time() - start_time
@@ -196,6 +329,7 @@ def test_model(client: Portkey, model_slug: str, status=None) -> Tuple[bool, Dic
                 'response_time': response_time,
                 'content': result.get('content'),
                 'dimension': result.get('dimension'),
+                'audio_size': result.get('audio_size'),
                 'usage': result.get('usage')
             })
             return True, test_details
@@ -227,6 +361,7 @@ def main():
     # Get user inputs
     api_key = get_api_key()
     config_id = get_config_id()
+    target_endpoint = get_target_endpoint_type()
     model_slugs = get_model_slugs()
     
     # Initialize Portkey client
@@ -236,6 +371,9 @@ def main():
     if config_id:
         client_kwargs["config"] = config_id
         console.print(f"   [dim]Using config ID:[/dim] {config_id}")
+    
+    if target_endpoint:
+        console.print(f"   [dim]Target Endpoint:[/dim] {target_endpoint}")
     
     client = Portkey(**client_kwargs)
     
@@ -260,10 +398,12 @@ def main():
         for model_slug in model_slugs:
             progress.update(task, description=f"[cyan]Testing {model_slug}...")
             
-            # Test with status context
-            with console.status(f"[bold cyan]Testing {model_slug}...[/bold cyan]", spinner="dots") as status:
-                success, details = test_model(client, model_slug, status)
-                results[model_slug] = details
+            # Test with status update callback
+            def update_status(msg):
+                progress.update(task, description=f"[cyan]{model_slug}: {msg}")
+                
+            success, details = test_model(client, model_slug, forced_type=target_endpoint, on_status_update=update_status)
+            results[model_slug] = details
             
             progress.advance(task)
         
@@ -326,6 +466,11 @@ def main():
                 panel_content.append(f"[dim]\"{content_preview}\"[/dim]")
             elif details['endpoint'] == 'embeddings' and details['dimension']:
                 panel_content.append(f"[bold]Embedding Dimension:[/bold] {details['dimension']}")
+            elif details['endpoint'] == 'tts':
+                panel_content.append(f"[bold]Audio Size:[/bold] {details.get('audio_size', 0)} bytes")
+                panel_content.append(f"[dim]Audio content received successfully[/dim]")
+            elif details['endpoint'] == 'stt':
+                panel_content.append(f"[bold]Transcription:[/bold] \"{details.get('content', '')}\"")
             
             # Create the panel
             success_panel = Panel(
