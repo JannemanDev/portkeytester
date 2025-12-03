@@ -198,23 +198,44 @@ def test_speech_to_text(client: Portkey, model_slug: str) -> Tuple[bool, Dict[st
         if os.path.exists(temp_filename):
             os.unlink(temp_filename)
 
-
 def test_chat_completion(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
     """Test chat completion endpoint."""
-    response = client.chat.completions.create(
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant. Respond briefly."
-            },
-            {
-                "role": "user",
-                "content": "Say 'Hello' if you can hear me."
-            }
-        ],
-        model=model_slug,
-        max_tokens=50
-    )
+    # Try max_completion_tokens first (newer models), fall back to max_tokens (older models)
+    try:
+        response = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant. Respond briefly."
+                },
+                {
+                    "role": "user",
+                    "content": "Say 'Hello' if you can hear me."
+                }
+            ],
+            model=model_slug,
+            max_completion_tokens=50
+        )
+    except Exception as e:
+        # If max_completion_tokens fails, try max_tokens (for older models)
+        if 'max_completion_tokens' in str(e).lower() or 'unsupported' in str(e).lower():
+            response = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant. Respond briefly."
+                    },
+                    {
+                        "role": "user",
+                        "content": "Say 'Hello' if you can hear me."
+                    }
+                ],
+                model=model_slug,
+                max_tokens=50
+            )
+        else:
+            # Re-raise if it's a different error
+            raise
     
     if response and hasattr(response, 'choices') and len(response.choices) > 0:
         first_choice = response.choices[0]
@@ -228,8 +249,6 @@ def test_chat_completion(client: Portkey, model_slug: str) -> Tuple[bool, Dict[s
         }
     
     return False, {'endpoint': 'chat', 'error': 'Invalid response structure'}
-
-
 def test_embeddings(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
     """Test embeddings endpoint."""
     response = client.embeddings.create(

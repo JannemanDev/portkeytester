@@ -8,6 +8,7 @@ A command-line tool to test multiple models through the Portkey AI gateway using
 - 🎯 Support for multiple model types (chat, embeddings, TTS, STT)
 - 🤖 Auto-detects endpoint type based on model slug
 - ⚙️ Optional config ID/header support
+- 🔒 **Do Not Track support** for sensitive data compliance
 - 📊 Clear success/error reporting with response time
 - 🚀 Dynamic model routing via Portkey
 - 🔄 Automatic fallback if primary endpoint fails
@@ -307,6 +308,22 @@ for model in "${MODELS[@]}"; do
   echo ""
 done
 ```
+
+## Do Not Track
+
+For sensitive data or privacy compliance, use `debug: false` to prevent logging request/response content:
+
+**Python SDK:**
+```python
+client = Portkey(api_key="your-key", debug=False)
+```
+
+**HTTP Header:**
+```bash
+--header 'x-portkey-debug: false'
+```
+
+Only operational metrics (tokens, cost, latency) are recorded. See [Portkey Do Not Track docs](https://portkey.ai/docs/product/observability/logs#do-not-track).
 
 ## Exit Codes
 
