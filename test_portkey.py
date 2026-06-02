@@ -198,44 +198,47 @@ def test_speech_to_text(client: Portkey, model_slug: str) -> Tuple[bool, Dict[st
         if os.path.exists(temp_filename):
             os.unlink(temp_filename)
 
+def _chat_token_limit_param_error(exc: Exception) -> bool:
+    """True when the provider rejected the token-limit parameter we sent."""
+    msg = str(exc).lower()
+    return any(
+        needle in msg
+        for needle in (
+            "max_tokens",
+            "max_completion_tokens",
+            "unsupported",
+            "extra_forbidden",
+            "not permitted",
+            "unknown parameter",
+        )
+    )
+
+
 def test_chat_completion(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
     """Test chat completion endpoint."""
-    # Try max_completion_tokens first (newer models), fall back to max_tokens (older models)
-    try:
-        response = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant. Respond briefly."
-                },
-                {
-                    "role": "user",
-                    "content": "Say 'Hello' if you can hear me."
-                }
-            ],
-            model=model_slug,
-            max_completion_tokens=50
-        )
-    except Exception as e:
-        # If max_completion_tokens fails, try max_tokens (for older models)
-        if 'max_completion_tokens' in str(e).lower() or 'unsupported' in str(e).lower():
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant. Respond briefly."},
+        {"role": "user", "content": "Say 'Hello' if you can hear me."},
+    ]
+    # max_tokens works for most providers (Mistral, Azure, etc.); newer OpenAI models
+    # may require max_completion_tokens instead.
+    token_limits = ({"max_tokens": 50}, {"max_completion_tokens": 50})
+    last_error: Optional[Exception] = None
+    response = None
+    for limit_kwargs in token_limits:
+        try:
             response = client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant. Respond briefly."
-                    },
-                    {
-                        "role": "user",
-                        "content": "Say 'Hello' if you can hear me."
-                    }
-                ],
+                messages=messages,
                 model=model_slug,
-                max_tokens=50
+                **limit_kwargs,
             )
-        else:
-            # Re-raise if it's a different error
-            raise
+            break
+        except Exception as e:
+            last_error = e
+            if not _chat_token_limit_param_error(e):
+                raise
+    if response is None and last_error is not None:
+        raise last_error
     
     if response and hasattr(response, 'choices') and len(response.choices) > 0:
         first_choice = response.choices[0]
@@ -249,13 +252,57 @@ def test_chat_completion(client: Portkey, model_slug: str) -> Tuple[bool, Dict[s
         }
     
     return False, {'endpoint': 'chat', 'error': 'Invalid response structure'}
+def _raw_embeddings_probe(api_key: str, model_slug: str) -> None:
+    """Fire a raw HTTP request to Portkey and print everything — bypasses SDK."""
+    import urllib.request
+    import urllib.error
+
+    url = "https://api.portkey.ai/v1/embeddings"
+    payload = json.dumps({"input": ["test"], "model": model_slug}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "x-portkey-api-key": api_key,
+        },
+        method="POST",
+    )
+    console.print(f"\n[bold yellow]── Raw HTTP probe ({url}) ──[/bold yellow]")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            status = resp.status
+            headers = dict(resp.headers)
+            body = resp.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        status = e.code
+        headers = dict(e.headers)
+        body = e.read().decode(errors="replace")
+    except Exception as e:
+        console.print(f"  [red]Request failed:[/red] {e}")
+        return
+
+    console.print(f"  [bold]Status:[/bold] {status}")
+    # Print only the interesting Portkey/error headers
+    interesting = {k: v for k, v in headers.items()
+                   if any(k.lower().startswith(p) for p in
+                          ("x-portkey", "grpc", "content", "x-ms", "azureml"))}
+    for k, v in interesting.items():
+        console.print(f"  [dim]{k}:[/dim] {v}")
+    console.print(f"  [bold]Body:[/bold] {body[:800]!r}" if body else "  [bold]Body:[/bold] (empty)")
+    console.print(f"[yellow]────────────────────────────────────────────────[/yellow]\n")
+
+
 def test_embeddings(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, Any]]:
     """Test embeddings endpoint."""
+    # Probe the raw HTTP response first so we always have diagnostics even if the SDK throws.
+    _raw_embeddings_probe(client.api_key, model_slug)
+
     response = client.embeddings.create(
-        input=["This is a test embedding request."],  # Must be a list for most providers
+        input=["This is a test embedding request."],
         model=model_slug
     )
-    
+
     if response and hasattr(response, 'data') and len(response.data) > 0:
         embedding = response.data[0].embedding
         dimension = len(embedding) if hasattr(embedding, '__len__') else 'Unknown'
@@ -267,7 +314,10 @@ def test_embeddings(client: Portkey, model_slug: str) -> Tuple[bool, Dict[str, A
             'usage': response.usage if hasattr(response, 'usage') else None
         }
     
-    return False, {'endpoint': 'embeddings', 'error': 'Invalid response structure'}
+    return False, {
+        'endpoint': 'embeddings',
+        'error': f'Invalid response — data={getattr(response, "data", "MISSING")!r}',
+    }
 
 
 def test_model(client: Portkey, model_slug: str, forced_type: Optional[str] = None, on_status_update=None) -> Tuple[bool, Dict[str, Any]]:
