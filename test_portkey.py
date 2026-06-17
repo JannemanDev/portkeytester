@@ -14,8 +14,6 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.syntax import Syntax
 from rich.rule import Rule
-from rich.pretty import Pretty
-from rich.status import Status
 import json
 import os
 import tempfile
@@ -603,11 +601,27 @@ def main():
         
         for model_slug, details in results.items():
             if not details['success'] and isinstance(details['error'], dict):
+                # Build panel content — use Text + json.dumps to avoid Rich's
+                # renderable-container limitations.  json.dumps produces the
+                # same visual output as Pretty(...) without needing a Group.
+                error_lines = []
+                error_lines.append(
+                    f"[bold red]Error Type:[/bold red] {details['error']['type']}"
+                )
+                error_lines.append(
+                    f"[bold red]Message:[/bold red] {details['error']['message']}"
+                )
+                if details['error'].get('status_code'):
+                    error_lines.append(
+                        f"[bold red]HTTP Status:[/bold red] {details['error']['status_code']}"
+                    )
+                if details['error'].get('body'):
+                    body_str = json.dumps(details['error']['body'], indent=2)
+                    error_lines.append("[bold red]Details:[/bold red]")
+                    error_lines.append(body_str)
+
                 error_panel = Panel(
-                    f"[bold red]Error Type:[/bold red] {details['error']['type']}\n"
-                    f"[bold red]Message:[/bold red] {details['error']['message']}\n"
-                    + (f"[bold red]HTTP Status:[/bold red] {details['error']['status_code']}\n" if details['error']['status_code'] else "")
-                    + (f"[bold red]Details:[/bold red]\n{Pretty(details['error']['body'])}" if details['error']['body'] else ""),
+                    "\n".join(error_lines),
                     title=f"[bold red]{model_slug}[/bold red]",
                     border_style="red",
                     padding=(1, 2),
