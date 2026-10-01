@@ -334,7 +334,7 @@ source venv/bin/activate
 Packages:
 
 ```bash
-pip install fastapi uvicorn httpx
+pip install -r requirements.txt
 ```
 
 ---
