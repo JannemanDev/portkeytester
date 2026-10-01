@@ -347,107 +347,17 @@ File:
 /root/cursor-portkey-proxy/proxy.py
 ```
 
-Contents:
+The proxy is environment-variable driven. It exposes `/v1/models` and `/v1/chat/completions`, supports streaming and non-streaming chat completions, and adds structured logging, diagnostics, request IDs, and a `/health` endpoint.
 
-```python
-import os
+- `CURSOR_MODEL` is the model name advertised to Cursor.
+- `PORTKEY_MODEL` is the real upstream model name sent to Portkey.
+- `PROXY_API_KEY`, when set, secures the endpoints with `Authorization: Bearer <PROXY_API_KEY>`.
+- `PORTKEY_API_KEY` is used for upstream Portkey requests.
 
-import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+The source file lives in this repository at:
 
-app = FastAPI()
-
-PORTKEY_URL = "https://api.portkey.ai/v1"
-
-PORTKEY_API_KEY = os.environ["PORTKEY_API_KEY"]
-PROXY_API_KEY = os.environ["PROXY_API_KEY"]
-
-CURSOR_MODEL = "kimi-k2.7-code-portkey"
-PORTKEY_MODEL = "kimi-k2.7-code"
-
-
-def authorized(request: Request) -> bool:
-    auth = request.headers.get("Authorization", "")
-    return auth == f"Bearer {PROXY_API_KEY}"
-
-
-@app.get("/v1/models")
-async def models(request: Request):
-    if not authorized(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    return {
-        "object": "list",
-        "data": [
-            {
-                "id": CURSOR_MODEL,
-                "object": "model",
-                "owned_by": "portkey"
-            }
-        ]
-    }
-
-
-@app.post("/v1/chat/completions")
-async def chat_completions(request: Request):
-    if not authorized(request):
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    body = await request.json()
-
-    if body.get("model") == CURSOR_MODEL:
-        body["model"] = PORTKEY_MODEL
-
-    headers = {
-        "Authorization": f"Bearer {PORTKEY_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    stream = body.get("stream", False)
-
-    client = httpx.AsyncClient(timeout=None)
-
-    upstream = await client.send(
-        client.build_request(
-            "POST",
-            f"{PORTKEY_URL}/chat/completions",
-            headers=headers,
-            json=body,
-        ),
-        stream=stream,
-    )
-
-    if stream:
-        async def stream_response():
-            try:
-                async for chunk in upstream.aiter_raw():
-                    yield chunk
-            finally:
-                await upstream.aclose()
-                await client.aclose()
-
-        return StreamingResponse(
-            stream_response(),
-            status_code=upstream.status_code,
-            headers={
-                "Content-Type": upstream.headers.get(
-                    "Content-Type",
-                    "text/event-stream"
-                )
-            },
-        )
-
-    content = await upstream.aread()
-
-    await upstream.aclose()
-    await client.aclose()
-
-    return Response(
-        content=content,
-        status_code=upstream.status_code,
-        media_type=upstream.headers.get("Content-Type")
-    )
+```text
+cursor-portkey-proxy/proxy.py
 ```
 
 ---
@@ -456,17 +366,36 @@ async def chat_completions(request: Request):
 
 The real Portkey API key does **not** belong in the Python source code.
 
-The following was used for this:
+Create the environment file:
 
 ```text
 /etc/cursor-portkey-proxy.env
 ```
 
-Contents:
+A documented example is in this repository at:
+
+```text
+cursor-portkey-proxy/cursor-portkey-proxy.env.example
+```
+
+Required variables:
 
 ```text
 PORTKEY_API_KEY=<real Portkey API key>
 PROXY_API_KEY=<your own random proxy key>
+```
+
+Optional variables (shown with their defaults):
+
+```text
+PORTKEY_URL=https://api.portkey.ai/v1
+CURSOR_MODEL=kimi-k2.7-code-portkey
+PORTKEY_MODEL=kimi-k2.7-code
+HOST=0.0.0.0
+PORT=8000
+FORCE_NONSTREAM=false
+KEEPALIVE_INTERVAL=10
+UPSTREAM_TIMEOUT=3600
 ```
 
 A new random proxy key can be created with:
